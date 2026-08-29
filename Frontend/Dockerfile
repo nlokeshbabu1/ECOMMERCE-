@@ -1,32 +1,29 @@
-#We are using the node alpine with stage
-FROM node:24-alpine3.21 as stage
+FROM node:18.17.0-alpine3.18
 
-#This is the working Directory
 WORKDIR /app
 
-#Copy the file from host to container
-COPY package*.json .
+# Copy package files first for better layer caching
+COPY package*.json ./
 
-#Install the dependency
-RUN npm ci
+# Install production dependencies only
+RUN npm ci --only=production
 
-#Copy the Index , css and main files
+# Copy application code
 COPY . .
 
-#Build the application 
-RUN npm run build
+# Create non-root user and group
+RUN addgroup --gid 1000 -S appgroup && \
+    adduser --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
 
-#production and the main dockerfile
-FROM nginx:alpine
+# Set proper ownership
+RUN chown -R appuser:appgroup /app
 
-#Copy the nginx.conf file
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Switch to non-root user
+USER appuser
 
-#Copy the build from stage to production
-COPY --from=stage /app/dist /usr/share/nginx/html
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
 
-#Expose the port number 80
-EXPOSE 80
-
-#Now start the nginx
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 3000
+CMD ["node", "server.js"]
